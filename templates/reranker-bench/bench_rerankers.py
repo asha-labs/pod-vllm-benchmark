@@ -19,6 +19,16 @@ def parse_csv(value: str) -> List[str]:
     return items
 
 
+def parse_int_list(value: str) -> List[int]:
+    items = []
+    for part in (value or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        items.append(int(part))
+    return items
+
+
 def sanitize_model_name(model: str) -> str:
     return model.replace("/", "__").replace(":", "_")
 
@@ -59,6 +69,23 @@ def main() -> int:
     )
     parser.add_argument("--num-pairs", type=int, default=int(os.environ.get("NUM_PAIRS", "1024")))
     parser.add_argument("--batch-size", type=int, default=int(os.environ.get("BATCH_SIZE", "16")))
+    parser.add_argument(
+        "--batch-size-sweep",
+        default=os.environ.get("BATCH_SIZE_SWEEP", ""),
+        help="Comma-separated list of batch sizes to sweep (overrides --batch-size).",
+    )
+    parser.add_argument(
+        "--num-pairs-per-batch",
+        type=int,
+        default=int(os.environ.get("NUM_PAIRS_PER_BATCH", "0")),
+        help="If set > 0, num_pairs = max(min_pairs, value * batch_size).",
+    )
+    parser.add_argument(
+        "--min-pairs",
+        type=int,
+        default=int(os.environ.get("MIN_PAIRS", "0")),
+        help="Minimum pairs when scaling by batch size.",
+    )
     parser.add_argument("--max-length", type=int, default=int(os.environ.get("MAX_LENGTH", "512")))
     parser.add_argument("--query-words", type=int, default=int(os.environ.get("QUERY_WORDS", "16")))
     parser.add_argument("--doc-words", type=int, default=int(os.environ.get("DOC_WORDS", "128")))
@@ -88,6 +115,12 @@ def main() -> int:
     if not models:
         print("No models provided.")
         return 1
+
+    sweep_values = parse_int_list(args.batch_size_sweep)
+    if sweep_values:
+        batch_sizes = sweep_values
+    else:
+        batch_sizes = [args.batch_size]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -129,13 +162,46 @@ def main() -> int:
 
         query_text = make_text(args.query_words)
         doc_text = make_text(args.doc_words)
-        pairs = [(query_text, doc_text) for _ in range(args.num_pairs)]
 
-        def run_steps(steps: int) -> None:
-            if steps <= 0:
-                return
-            for _ in range(steps):
-                batch = pairs[: args.batch_size]
+        for batch_size in batch_sizes:
+            if args.num_pairs_per_batch > 0:
+                effective_pairs = max(
+                    args.min_pairs,
+                    args.num_pairs_per_batch * batch_size,
+                )
+            else:
+                effective_pairs = args.num_pairs
+
+            pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
+
+            def run_steps(steps: int) -> None:
+                if steps <= 0:
+                    return
+                for _ in range(steps):
+                    batch = pairs[:batch_size]
+                    encoded = tokenizer(
+                        [q for q, _ in batch],
+                        [d for _, d in batch],
+                        padding=True,
+                        truncation=True,
+                        max_length=args.max_length,
+                        return_tensors="pt",
+                    )
+                    encoded = {k: v.to(device) for k, v in encoded.items()}
+                    with torch.no_grad():
+                        _ = model_obj(**encoded)
+                    if device.type == "cuda":
+                        torch.cuda.synchronize()
+
+            if args.warmup_steps > 0:
+                print(f"Running warmup (batch_size={batch_size})...")
+                run_steps(args.warmup_steps)
+
+            print(f"Running benchmark (batch_size={batch_size})...")
+            start = time.time()
+            processed = 0
+            for i in range(0, effective_pairs, batch_size):
+                batch = pairs[i : i + batch_size]
                 encoded = tokenizer(
                     [q for q, _ in batch],
                     [d for _, d in batch],
@@ -149,43 +215,21 @@ def main() -> int:
                     _ = model_obj(**encoded)
                 if device.type == "cuda":
                     torch.cuda.synchronize()
+                processed += len(batch)
 
-        if args.warmup_steps > 0:
-            print("Running warmup...")
-            run_steps(args.warmup_steps)
+            elapsed = time.time() - start
+            pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
 
-        print("Running benchmark...")
-        start = time.time()
-        processed = 0
-        for i in range(0, args.num_pairs, args.batch_size):
-            batch = pairs[i : i + args.batch_size]
-            encoded = tokenizer(
-                [q for q, _ in batch],
-                [d for _, d in batch],
-                padding=True,
-                truncation=True,
-                max_length=args.max_length,
-                return_tensors="pt",
-            )
-            encoded = {k: v.to(device) for k, v in encoded.items()}
-            with torch.no_grad():
-                _ = model_obj(**encoded)
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-            processed += len(batch)
+            print(f"Processed {processed} pairs in {elapsed:.2f}s")
+            print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
 
-        elapsed = time.time() - start
-        pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
-
-        print(f"Processed {processed} pairs in {elapsed:.2f}s")
-        print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
-
-        results.append({
-            "model": model,
-            "pairs": processed,
-            "seconds": elapsed,
-            "pairs_per_sec": pairs_per_sec,
-        })
+            results.append({
+                "model": model,
+                "batch_size": batch_size,
+                "pairs": processed,
+                "seconds": elapsed,
+                "pairs_per_sec": pairs_per_sec,
+            })
 
         if args.clear_model_after:
             shutil.rmtree(local_dir, ignore_errors=True)
@@ -196,7 +240,7 @@ def main() -> int:
 
     for item in results:
         print(
-            f"OK | {item['model']} | {item['pairs_per_sec']:.2f} pairs/sec | {item['pairs']} pairs"
+            f"OK | {item['model']} | bs={item['batch_size']} | {item['pairs_per_sec']:.2f} pairs/sec | {item['pairs']} pairs"
         )
 
     if failed_models:

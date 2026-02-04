@@ -30,6 +30,9 @@ python3 /app/bench_rerankers.py \
 - `MODELS_DIR` (default: `/models`)
 - `NUM_PAIRS` (default: `1024`)
 - `BATCH_SIZE` (default: `16`)
+- `BATCH_SIZE_SWEEP` (optional, e.g. `8,16,32`)
+- `NUM_PAIRS_PER_BATCH` (optional, e.g. `64`; if set, pairs scale with batch size)
+- `MIN_PAIRS` (optional floor when scaling pairs)
 - `MAX_LENGTH` (default: `512`)
 
 Models are downloaded under `MODELS_DIR` and deleted after each run unless `CLEAR_MODEL_AFTER=0`.
