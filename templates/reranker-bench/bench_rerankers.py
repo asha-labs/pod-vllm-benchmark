@@ -158,6 +158,16 @@ def main() -> int:
             model_obj = AutoModelForSequenceClassification.from_pretrained(
                 local_dir, trust_remote_code=args.trust_remote_code
             )
+            if tokenizer.pad_token is None:
+                if tokenizer.eos_token is not None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                elif tokenizer.sep_token is not None:
+                    tokenizer.pad_token = tokenizer.sep_token
+                elif tokenizer.unk_token is not None:
+                    tokenizer.pad_token = tokenizer.unk_token
+                else:
+                    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+                model_obj.resize_token_embeddings(len(tokenizer))
             model_obj.eval()
             model_obj.to(device)
             if args.use_fp16 and device.type == "cuda":
