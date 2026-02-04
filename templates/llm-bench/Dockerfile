@@ -2,7 +2,8 @@ FROM vllm/vllm-openai:latest
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir --upgrade pip \
+RUN ln -sf /usr/bin/python3 /usr/bin/python \
+    && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir huggingface_hub
 
 COPY bench_llms.py /app/bench_llms.py
