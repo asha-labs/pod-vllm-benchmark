@@ -19,7 +19,7 @@ python /app/bench_llms.py
 ## Override example (Runpod Start Command)
 
 ```bash
-python /app/bench_llms.py \
+python3 /app/bench_llms.py \
   --models "Qwen/Qwen3-Coder-Next,Qwen/Qwen3-Coder-Next-FP8" \
   --length-pairs "128:128,512:128,1024:256" \
   --gpu-memory-utilization 0.95

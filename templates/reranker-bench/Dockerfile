@@ -15,4 +15,4 @@ ENV HF_HUB_ENABLE_HF_TRANSFER=1
 # Override vLLM image entrypoint so we can run our script.
 ENTRYPOINT []
 
-CMD ["python", "/app/bench_rerankers.py"]
+CMD ["python3", "/app/bench_rerankers.py"]

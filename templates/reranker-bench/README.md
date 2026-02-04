@@ -17,7 +17,7 @@ python /app/bench_rerankers.py
 ## Override example (Runpod Start Command)
 
 ```bash
-python /app/bench_rerankers.py \
+python3 /app/bench_rerankers.py \
   --models "Qwen/Qwen3-Reranker-Base,cross-encoder/ms-marco-MiniLM-L-6-v2" \
   --num-pairs 2048 \
   --batch-size 32 \
