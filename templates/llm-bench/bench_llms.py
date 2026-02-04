@@ -157,6 +157,18 @@ def main() -> int:
         help="Comma-separated list of concurrency values to sweep (overrides --max-concurrency).",
     )
     parser.add_argument("--num-prompts", type=int, default=int(os.environ.get("NUM_PROMPTS", "100")))
+    parser.add_argument(
+        "--num-prompts-per-concurrency",
+        type=int,
+        default=int(os.environ.get("NUM_PROMPTS_PER_CONCURRENCY", "0")),
+        help="If set > 0, num_prompts = max(min_prompts, value * concurrency).",
+    )
+    parser.add_argument(
+        "--min-prompts",
+        type=int,
+        default=int(os.environ.get("MIN_PROMPTS", "0")),
+        help="Minimum prompts when scaling by concurrency.",
+    )
 
     parser.add_argument("--warmup-num-prompts", type=int, default=int(os.environ.get("WARMUP_NUM_PROMPTS", "5")))
     parser.add_argument("--warmup-input-len", type=int, default=int(os.environ.get("WARMUP_INPUT_LEN", "128")))
@@ -300,13 +312,20 @@ def main() -> int:
                 print(
                     f"Benchmarking {model} @ in={input_len}, out={output_len}, concurrency={concurrency}"
                 )
+                if args.num_prompts_per_concurrency > 0:
+                    effective_prompts = max(
+                        args.min_prompts,
+                        args.num_prompts_per_concurrency * concurrency,
+                    )
+                else:
+                    effective_prompts = args.num_prompts
                 ok, output = run_bench(
                     model_name=model,
                     base_url=base_url,
                     input_len=input_len,
                     output_len=output_len,
                     max_concurrency=concurrency,
-                    num_prompts=args.num_prompts,
+                    num_prompts=effective_prompts,
                     api_key=args.api_key,
                     env=base_env,
                 )

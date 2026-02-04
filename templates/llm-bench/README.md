@@ -31,6 +31,8 @@ python3 /app/bench_llms.py \
 - `LENGTH_PAIRS` (default: `128:128`)
 - `MODELS_DIR` (default: `/models`)
 - `CONCURRENCY_SWEEP` (optional, e.g. `1,2,4,8`)
+- `NUM_PROMPTS_PER_CONCURRENCY` (optional, e.g. `10`; if set, prompts scale with concurrency)
+- `MIN_PROMPTS` (optional floor when scaling prompts)
 - `GPU_MEMORY_UTILIZATION` (default: `0.95`)
 - `MAX_MODEL_LEN` (default: `8128`)
 - `DTYPE` (default: `bfloat16`)
