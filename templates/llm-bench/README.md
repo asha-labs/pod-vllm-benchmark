@@ -30,6 +30,7 @@ python3 /app/bench_llms.py \
 - `MODELS` (default: `meta-llama/Meta-Llama-3.1-8B-Instruct`)
 - `LENGTH_PAIRS` (default: `128:128`)
 - `MODELS_DIR` (default: `/models`)
+- `CONCURRENCY_SWEEP` (optional, e.g. `1,2,4,8`)
 - `GPU_MEMORY_UTILIZATION` (default: `0.95`)
 - `MAX_MODEL_LEN` (default: `8128`)
 - `DTYPE` (default: `bfloat16`)

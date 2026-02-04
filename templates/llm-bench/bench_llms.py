@@ -37,6 +37,16 @@ def parse_length_pairs(value: str) -> List[Tuple[int, int]]:
     return pairs
 
 
+def parse_int_list(value: str) -> List[int]:
+    items = []
+    for part in (value or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        items.append(int(part))
+    return items
+
+
 def sanitize_model_name(model: str) -> str:
     return model.replace("/", "__").replace(":", "_")
 
@@ -141,6 +151,11 @@ def main() -> int:
         help="Comma-separated input:output length pairs (e.g., 128:128,512:128).",
     )
     parser.add_argument("--max-concurrency", type=int, default=int(os.environ.get("MAX_CONCURRENCY", "1")))
+    parser.add_argument(
+        "--concurrency-sweep",
+        default=os.environ.get("CONCURRENCY_SWEEP", ""),
+        help="Comma-separated list of concurrency values to sweep (overrides --max-concurrency).",
+    )
     parser.add_argument("--num-prompts", type=int, default=int(os.environ.get("NUM_PROMPTS", "100")))
 
     parser.add_argument("--warmup-num-prompts", type=int, default=int(os.environ.get("WARMUP_NUM_PROMPTS", "5")))
@@ -191,6 +206,12 @@ def main() -> int:
     if not length_pairs:
         print("No length pairs provided.")
         return 1
+
+    sweep_values = parse_int_list(args.concurrency_sweep)
+    if sweep_values:
+        concurrency_values = sweep_values
+    else:
+        concurrency_values = [args.max_concurrency]
 
     base_url = f"http://127.0.0.1:{args.serve_port}"
     health_url = f"{base_url}/health"
@@ -267,33 +288,37 @@ def main() -> int:
                 base_url=base_url,
                 input_len=args.warmup_input_len,
                 output_len=args.warmup_output_len,
-                max_concurrency=min(args.max_concurrency, 4),
+                max_concurrency=min(concurrency_values[0], 4),
                 num_prompts=args.warmup_num_prompts,
                 api_key=args.api_key,
                 env=base_env,
             )
 
-        for input_len, output_len in length_pairs:
-            print("-" * 80)
-            print(f"Benchmarking {model} @ in={input_len}, out={output_len}")
-            ok, output = run_bench(
-                model_name=model,
-                base_url=base_url,
-                input_len=input_len,
-                output_len=output_len,
-                max_concurrency=args.max_concurrency,
-                num_prompts=args.num_prompts,
-                api_key=args.api_key,
-                env=base_env,
-            )
-            results.append({
-                "model": model,
-                "input_len": input_len,
-                "output_len": output_len,
-                "success": ok,
-            })
-            if not ok:
-                failed_models.append((model, f"bench_failed_{input_len}x{output_len}"))
+        for concurrency in concurrency_values:
+            for input_len, output_len in length_pairs:
+                print("-" * 80)
+                print(
+                    f"Benchmarking {model} @ in={input_len}, out={output_len}, concurrency={concurrency}"
+                )
+                ok, output = run_bench(
+                    model_name=model,
+                    base_url=base_url,
+                    input_len=input_len,
+                    output_len=output_len,
+                    max_concurrency=concurrency,
+                    num_prompts=args.num_prompts,
+                    api_key=args.api_key,
+                    env=base_env,
+                )
+                results.append({
+                    "model": model,
+                    "input_len": input_len,
+                    "output_len": output_len,
+                    "concurrency": concurrency,
+                    "success": ok,
+                })
+                if not ok:
+                    failed_models.append((model, f"bench_failed_{input_len}x{output_len}_c{concurrency}"))
 
         proc.terminate()
         try:
@@ -314,7 +339,9 @@ def main() -> int:
     if results:
         for item in results:
             status = "OK" if item["success"] else "FAIL"
-            print(f"{status} | {item['model']} | in={item['input_len']} out={item['output_len']}")
+            print(
+                f"{status} | {item['model']} | in={item['input_len']} out={item['output_len']} | c={item['concurrency']}"
+            )
 
     if failed_models:
         print("=" * 80)
