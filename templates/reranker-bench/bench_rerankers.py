@@ -91,6 +91,11 @@ def main() -> int:
     parser.add_argument("--doc-words", type=int, default=int(os.environ.get("DOC_WORDS", "128")))
     parser.add_argument("--warmup-steps", type=int, default=int(os.environ.get("WARMUP_STEPS", "2")))
     parser.add_argument("--use-fp16", action="store_true", default=os.environ.get("USE_FP16", "0") == "1")
+    parser.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        default=os.environ.get("TRUST_REMOTE_CODE", "1") != "0",
+    )
 
     parser.add_argument("--models-dir", default=os.environ.get("MODELS_DIR", "/models"))
     parser.add_argument("--hf-token", default=os.environ.get("HUGGING_FACE_HUB_TOKEN", ""))
@@ -147,8 +152,12 @@ def main() -> int:
             continue
 
         try:
-            tokenizer = AutoTokenizer.from_pretrained(local_dir)
-            model_obj = AutoModelForSequenceClassification.from_pretrained(local_dir)
+            tokenizer = AutoTokenizer.from_pretrained(
+                local_dir, trust_remote_code=args.trust_remote_code
+            )
+            model_obj = AutoModelForSequenceClassification.from_pretrained(
+                local_dir, trust_remote_code=args.trust_remote_code
+            )
             model_obj.eval()
             model_obj.to(device)
             if args.use_fp16 and device.type == "cuda":
@@ -160,25 +169,59 @@ def main() -> int:
                 shutil.rmtree(local_dir, ignore_errors=True)
             continue
 
+        def forward_batch(encoded):
+            try:
+                return model_obj(**encoded)
+            except TypeError as exc:
+                if "token_type_ids" in str(exc) and "unexpected keyword argument" in str(exc):
+                    encoded = dict(encoded)
+                    encoded.pop("token_type_ids", None)
+                    return model_obj(**encoded)
+                raise
+
         query_text = make_text(args.query_words)
         doc_text = make_text(args.doc_words)
 
-        for batch_size in batch_sizes:
-            if args.num_pairs_per_batch > 0:
-                effective_pairs = max(
-                    args.min_pairs,
-                    args.num_pairs_per_batch * batch_size,
-                )
-            else:
-                effective_pairs = args.num_pairs
+        try:
+            for batch_size in batch_sizes:
+                if args.num_pairs_per_batch > 0:
+                    effective_pairs = max(
+                        args.min_pairs,
+                        args.num_pairs_per_batch * batch_size,
+                    )
+                else:
+                    effective_pairs = args.num_pairs
 
-            pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
+                pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
 
-            def run_steps(steps: int) -> None:
-                if steps <= 0:
-                    return
-                for _ in range(steps):
-                    batch = pairs[:batch_size]
+                def run_steps(steps: int) -> None:
+                    if steps <= 0:
+                        return
+                    for _ in range(steps):
+                        batch = pairs[:batch_size]
+                        encoded = tokenizer(
+                            [q for q, _ in batch],
+                            [d for _, d in batch],
+                            padding=True,
+                            truncation=True,
+                            max_length=args.max_length,
+                            return_tensors="pt",
+                        )
+                        encoded = {k: v.to(device) for k, v in encoded.items()}
+                        with torch.no_grad():
+                            _ = forward_batch(encoded)
+                        if device.type == "cuda":
+                            torch.cuda.synchronize()
+
+                if args.warmup_steps > 0:
+                    print(f"Running warmup (batch_size={batch_size})...")
+                    run_steps(args.warmup_steps)
+
+                print(f"Running benchmark (batch_size={batch_size})...")
+                start = time.time()
+                processed = 0
+                for i in range(0, effective_pairs, batch_size):
+                    batch = pairs[i : i + batch_size]
                     encoded = tokenizer(
                         [q for q, _ in batch],
                         [d for _, d in batch],
@@ -189,47 +232,27 @@ def main() -> int:
                     )
                     encoded = {k: v.to(device) for k, v in encoded.items()}
                     with torch.no_grad():
-                        _ = model_obj(**encoded)
+                        _ = forward_batch(encoded)
                     if device.type == "cuda":
                         torch.cuda.synchronize()
+                    processed += len(batch)
 
-            if args.warmup_steps > 0:
-                print(f"Running warmup (batch_size={batch_size})...")
-                run_steps(args.warmup_steps)
+                elapsed = time.time() - start
+                pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
 
-            print(f"Running benchmark (batch_size={batch_size})...")
-            start = time.time()
-            processed = 0
-            for i in range(0, effective_pairs, batch_size):
-                batch = pairs[i : i + batch_size]
-                encoded = tokenizer(
-                    [q for q, _ in batch],
-                    [d for _, d in batch],
-                    padding=True,
-                    truncation=True,
-                    max_length=args.max_length,
-                    return_tensors="pt",
-                )
-                encoded = {k: v.to(device) for k, v in encoded.items()}
-                with torch.no_grad():
-                    _ = model_obj(**encoded)
-                if device.type == "cuda":
-                    torch.cuda.synchronize()
-                processed += len(batch)
+                print(f"Processed {processed} pairs in {elapsed:.2f}s")
+                print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
 
-            elapsed = time.time() - start
-            pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
-
-            print(f"Processed {processed} pairs in {elapsed:.2f}s")
-            print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
-
-            results.append({
-                "model": model,
-                "batch_size": batch_size,
-                "pairs": processed,
-                "seconds": elapsed,
-                "pairs_per_sec": pairs_per_sec,
-            })
+                results.append({
+                    "model": model,
+                    "batch_size": batch_size,
+                    "pairs": processed,
+                    "seconds": elapsed,
+                    "pairs_per_sec": pairs_per_sec,
+                })
+        except Exception as exc:
+            print(f"Inference failed for {model}: {exc}")
+            failed_models.append((model, "inference_failed"))
 
         if args.clear_model_after:
             shutil.rmtree(local_dir, ignore_errors=True)

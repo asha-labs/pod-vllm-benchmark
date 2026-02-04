@@ -34,5 +34,6 @@ python3 /app/bench_rerankers.py \
 - `NUM_PAIRS_PER_BATCH` (optional, e.g. `64`; if set, pairs scale with batch size)
 - `MIN_PAIRS` (optional floor when scaling pairs)
 - `MAX_LENGTH` (default: `512`)
+- `TRUST_REMOTE_CODE` (default: `1`)
 
 Models are downloaded under `MODELS_DIR` and deleted after each run unless `CLEAR_MODEL_AFTER=0`.
