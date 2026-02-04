@@ -6,7 +6,6 @@ import sys
 import time
 from typing import List
 
-import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -22,6 +21,16 @@ def parse_csv(value: str) -> List[str]:
 
 def sanitize_model_name(model: str) -> str:
     return model.replace("/", "__").replace(":", "_")
+
+
+def sanitize_cuda_env(env: dict) -> dict:
+    compat_path = "/usr/local/cuda/compat"
+    ld_path = env.get("LD_LIBRARY_PATH", "")
+    if ld_path:
+        parts = [p for p in ld_path.split(":") if p and compat_path not in p]
+        env["LD_LIBRARY_PATH"] = ":".join(parts)
+    env.setdefault("CUDA_DISABLE_COMPAT", "1")
+    return env
 
 
 def download_model(repo_id: str, local_dir: str, token: str) -> None:
@@ -69,6 +78,11 @@ def main() -> int:
     os.environ.setdefault("HF_HOME", hf_home)
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+
+    base_env = sanitize_cuda_env(os.environ.copy())
+    os.environ.update(base_env)
+
+    import torch
 
     models = parse_csv(args.models)
     if not models:

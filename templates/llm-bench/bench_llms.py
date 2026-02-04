@@ -41,6 +41,16 @@ def sanitize_model_name(model: str) -> str:
     return model.replace("/", "__").replace(":", "_")
 
 
+def sanitize_cuda_env(env: dict) -> dict:
+    compat_path = "/usr/local/cuda/compat"
+    ld_path = env.get("LD_LIBRARY_PATH", "")
+    if ld_path:
+        parts = [p for p in ld_path.split(":") if p and compat_path not in p]
+        env["LD_LIBRARY_PATH"] = ":".join(parts)
+    env.setdefault("CUDA_DISABLE_COMPAT", "1")
+    return env
+
+
 def wait_for_health(proc: subprocess.Popen, url: str, timeout_s: int) -> bool:
     start = time.time()
     while time.time() - start < timeout_s:
@@ -65,6 +75,7 @@ def run_bench(
     max_concurrency: int,
     num_prompts: int,
     api_key: str,
+    env: dict,
 ) -> Tuple[bool, str]:
     cmd = [
         "vllm",
@@ -93,7 +104,7 @@ def run_bench(
         base_url,
     ]
 
-    env = os.environ.copy()
+    env = env.copy()
     if api_key:
         env["OPENAI_API_KEY"] = api_key
 
@@ -168,6 +179,9 @@ def main() -> int:
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
 
+    base_env = sanitize_cuda_env(os.environ.copy())
+    os.environ.update(base_env)
+
     models = parse_csv(args.models)
     if not models:
         print("No models provided.")
@@ -232,7 +246,7 @@ def main() -> int:
 
         print("Starting vLLM server:")
         print(" ".join(vllm_cmd))
-        proc = subprocess.Popen(vllm_cmd)
+        proc = subprocess.Popen(vllm_cmd, env=base_env)
 
         healthy = wait_for_health(proc, health_url, args.startup_timeout)
         if not healthy:
@@ -256,6 +270,7 @@ def main() -> int:
                 max_concurrency=min(args.max_concurrency, 4),
                 num_prompts=args.warmup_num_prompts,
                 api_key=args.api_key,
+                env=base_env,
             )
 
         for input_len, output_len in length_pairs:
@@ -269,6 +284,7 @@ def main() -> int:
                 max_concurrency=args.max_concurrency,
                 num_prompts=args.num_prompts,
                 api_key=args.api_key,
+                env=base_env,
             )
             results.append({
                 "model": model,
