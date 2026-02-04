@@ -168,6 +168,14 @@ def main() -> int:
                 else:
                     tokenizer.add_special_tokens({"pad_token": "[PAD]"})
                 model_obj.resize_token_embeddings(len(tokenizer))
+            if tokenizer.pad_token_id is None and tokenizer.pad_token is not None:
+                try:
+                    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids(tokenizer.pad_token)
+                except Exception:
+                    pass
+            if getattr(model_obj.config, "pad_token_id", None) is None and tokenizer.pad_token_id is not None:
+                model_obj.config.pad_token_id = tokenizer.pad_token_id
+            print(f"pad_token={tokenizer.pad_token} pad_token_id={tokenizer.pad_token_id}")
             model_obj.eval()
             model_obj.to(device)
             if args.use_fp16 and device.type == "cuda":
@@ -192,77 +200,146 @@ def main() -> int:
         query_text = make_text(args.query_words)
         doc_text = make_text(args.doc_words)
 
+        def encode_batch(batch):
+            try:
+                return tokenizer(
+                    [q for q, _ in batch],
+                    [d for _, d in batch],
+                    padding=True,
+                    truncation=True,
+                    max_length=args.max_length,
+                    return_tensors="pt",
+                )
+            except ValueError as exc:
+                msg = str(exc).lower()
+                if "batch sizes > 1" in msg and "padding token" in msg:
+                    raise RuntimeError("BATCH_SIZE_UNSUPPORTED") from exc
+                raise
+
         try:
-            for batch_size in batch_sizes:
-                if args.num_pairs_per_batch > 0:
-                    effective_pairs = max(
-                        args.min_pairs,
-                        args.num_pairs_per_batch * batch_size,
-                    )
-                else:
-                    effective_pairs = args.num_pairs
+            forced_single = False
+            batch_sizes_to_run = batch_sizes
+            if tokenizer.pad_token_id is None:
+                print("No pad_token_id available; forcing batch_size=1 for this model.")
+                batch_sizes_to_run = [1]
+                forced_single = True
 
-                pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
-
-                def run_steps(steps: int) -> None:
-                    if steps <= 0:
-                        return
-                    for _ in range(steps):
-                        batch = pairs[:batch_size]
-                        encoded = tokenizer(
-                            [q for q, _ in batch],
-                            [d for _, d in batch],
-                            padding=True,
-                            truncation=True,
-                            max_length=args.max_length,
-                            return_tensors="pt",
+            while True:
+                for batch_size in batch_sizes_to_run:
+                    if args.num_pairs_per_batch > 0:
+                        effective_pairs = max(
+                            args.min_pairs,
+                            args.num_pairs_per_batch * batch_size,
                         )
+                    else:
+                        effective_pairs = args.num_pairs
+
+                    pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
+
+                    def run_steps(steps: int) -> None:
+                        if steps <= 0:
+                            return
+                        for _ in range(steps):
+                            batch = pairs[:batch_size]
+                            encoded = encode_batch(batch)
+                            encoded = {k: v.to(device) for k, v in encoded.items()}
+                            with torch.no_grad():
+                                _ = forward_batch(encoded)
+                            if device.type == "cuda":
+                                torch.cuda.synchronize()
+
+                    if args.warmup_steps > 0:
+                        print(f"Running warmup (batch_size={batch_size})...")
+                        run_steps(args.warmup_steps)
+
+                    print(f"Running benchmark (batch_size={batch_size})...")
+                    start = time.time()
+                    processed = 0
+                    for i in range(0, effective_pairs, batch_size):
+                        batch = pairs[i : i + batch_size]
+                        encoded = encode_batch(batch)
                         encoded = {k: v.to(device) for k, v in encoded.items()}
                         with torch.no_grad():
                             _ = forward_batch(encoded)
                         if device.type == "cuda":
                             torch.cuda.synchronize()
+                        processed += len(batch)
 
-                if args.warmup_steps > 0:
-                    print(f"Running warmup (batch_size={batch_size})...")
-                    run_steps(args.warmup_steps)
+                    elapsed = time.time() - start
+                    pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
 
-                print(f"Running benchmark (batch_size={batch_size})...")
-                start = time.time()
-                processed = 0
-                for i in range(0, effective_pairs, batch_size):
-                    batch = pairs[i : i + batch_size]
-                    encoded = tokenizer(
-                        [q for q, _ in batch],
-                        [d for _, d in batch],
-                        padding=True,
-                        truncation=True,
-                        max_length=args.max_length,
-                        return_tensors="pt",
-                    )
-                    encoded = {k: v.to(device) for k, v in encoded.items()}
-                    with torch.no_grad():
-                        _ = forward_batch(encoded)
-                    if device.type == "cuda":
-                        torch.cuda.synchronize()
-                    processed += len(batch)
+                    print(f"Processed {processed} pairs in {elapsed:.2f}s")
+                    print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
 
-                elapsed = time.time() - start
-                pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
+                    results.append({
+                        "model": model,
+                        "batch_size": batch_size,
+                        "pairs": processed,
+                        "seconds": elapsed,
+                        "pairs_per_sec": pairs_per_sec,
+                    })
+                break
+        except RuntimeError as exc:
+            if str(exc) == "BATCH_SIZE_UNSUPPORTED" and not forced_single:
+                print("Tokenizer lacks padding support. Falling back to batch_size=1.")
+                batch_sizes = [1]
+                try:
+                    forced_single = True
+                    batch_sizes_to_run = [1]
+                    for batch_size in batch_sizes_to_run:
+                        if args.num_pairs_per_batch > 0:
+                            effective_pairs = max(
+                                args.min_pairs,
+                                args.num_pairs_per_batch * batch_size,
+                            )
+                        else:
+                            effective_pairs = args.num_pairs
 
-                print(f"Processed {processed} pairs in {elapsed:.2f}s")
-                print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
+                        pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
 
-                results.append({
-                    "model": model,
-                    "batch_size": batch_size,
-                    "pairs": processed,
-                    "seconds": elapsed,
-                    "pairs_per_sec": pairs_per_sec,
-                })
-        except Exception as exc:
-            print(f"Inference failed for {model}: {exc}")
-            failed_models.append((model, "inference_failed"))
+                        if args.warmup_steps > 0:
+                            print(f"Running warmup (batch_size={batch_size})...")
+                            for _ in range(args.warmup_steps):
+                                batch = pairs[:batch_size]
+                                encoded = encode_batch(batch)
+                                encoded = {k: v.to(device) for k, v in encoded.items()}
+                                with torch.no_grad():
+                                    _ = forward_batch(encoded)
+                                if device.type == "cuda":
+                                    torch.cuda.synchronize()
+
+                        print(f"Running benchmark (batch_size={batch_size})...")
+                        start = time.time()
+                        processed = 0
+                        for i in range(0, effective_pairs, batch_size):
+                            batch = pairs[i : i + batch_size]
+                            encoded = encode_batch(batch)
+                            encoded = {k: v.to(device) for k, v in encoded.items()}
+                            with torch.no_grad():
+                                _ = forward_batch(encoded)
+                            if device.type == "cuda":
+                                torch.cuda.synchronize()
+                            processed += len(batch)
+
+                        elapsed = time.time() - start
+                        pairs_per_sec = processed / elapsed if elapsed > 0 else 0.0
+
+                        print(f"Processed {processed} pairs in {elapsed:.2f}s")
+                        print(f"Throughput: {pairs_per_sec:.2f} pairs/sec")
+
+                        results.append({
+                            "model": model,
+                            "batch_size": batch_size,
+                            "pairs": processed,
+                            "seconds": elapsed,
+                            "pairs_per_sec": pairs_per_sec,
+                        })
+                except Exception as exc2:
+                    print(f"Inference failed for {model}: {exc2}")
+                    failed_models.append((model, "inference_failed"))
+            else:
+                print(f"Inference failed for {model}: {exc}")
+                failed_models.append((model, "inference_failed"))
 
         if args.clear_model_after:
             shutil.rmtree(local_dir, ignore_errors=True)
