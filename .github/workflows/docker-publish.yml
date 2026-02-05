@@ -23,6 +23,9 @@ jobs:
           - image: swift-finetune-bench
             context: templates/swift-finetune-bench
             dockerfile: templates/swift-finetune-bench/Dockerfile
+          - image: hf-reranker-finetune-bench
+            context: templates/hf-reranker-finetune-bench
+            dockerfile: templates/hf-reranker-finetune-bench/Dockerfile
 
     steps:
       - name: Checkout
