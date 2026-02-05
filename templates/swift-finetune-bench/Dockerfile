@@ -21,7 +21,7 @@ WORKDIR /opt/ms-swift
 RUN pip install --no-cache-dir -e '.[all]'
 RUN pip install --no-cache-dir ninja packaging wheel && \
     pip install --no-cache-dir --no-build-isolation flash-attn && \
-    pip install --no-cache-dir msgspec datasets
+    pip install --no-cache-dir msgspec datasets hf_transfer
 
 WORKDIR /app
 
