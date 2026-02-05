@@ -20,6 +20,9 @@ jobs:
           - image: vllm-reranker-bench
             context: templates/reranker-bench
             dockerfile: templates/reranker-bench/Dockerfile
+          - image: swift-finetune-bench
+            context: templates/swift-finetune-bench
+            dockerfile: templates/swift-finetune-bench/Dockerfile
 
     steps:
       - name: Checkout
