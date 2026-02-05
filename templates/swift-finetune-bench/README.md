@@ -97,7 +97,7 @@ python3 /app/generate_swift_dataset.py \
 
 ```bash
 python3 /app/bench_swift_finetune.py \
-  --models "Qwen/Qwen3-Reranker-0.6B,Alibaba-NLP/gte-reranker-modernbert-base" \
+  --models "Qwen/Qwen3-Reranker-0.6B,iic/gte-reranker-modernbert-base" \
   --model "Qwen/Qwen3-Embedding-0.6B" \
   --dataset auto \
   --num-samples 512 \

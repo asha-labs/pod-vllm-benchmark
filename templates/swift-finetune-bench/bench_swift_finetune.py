@@ -284,7 +284,7 @@ def main() -> int:
             "gradient_accumulation_steps": args.gradient_accumulation_steps,
             "learning_rate": args.learning_rate,
             "max_length": args.max_length,
-            "dtype": args.torch_dtype,
+            "torch_dtype": args.torch_dtype,
             "lora_rank": args.lora_rank,
             "lora_alpha": args.lora_alpha,
             "target_modules": args.target_modules,
