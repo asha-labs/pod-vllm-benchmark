@@ -21,9 +21,9 @@ The wrapper prints `date` and `nvidia-smi` before running the benchmark.
 ```bash
 python3 /app/bench_swift_finetune.py \
   --model "Qwen/Qwen3-Embedding-0.6B" \
-  --dataset "/app/data/train.jsonl" \
+  --dataset "auto" \
   --output-dir "/output" \
-  --results-file "/output/swift_finetune_benchmark.txt" \
+  --results-file "swift_finetune_benchmark.txt" \
   --task-type "embedding" \
   --model-type "qwen3_emb" \
   --train-type "lora" \
@@ -49,7 +49,15 @@ python3 /app/bench_swift_finetune.py \
   --dataset-num-proc 1 \
   --dataloader-num-workers 0 \
   --dataloader-drop-last 1 \
-  --max-samples 64
+  --max-samples 64 \
+  --num-samples 256 \
+  --query-words 128 \
+  --doc-words 256 \
+  --query-lengths "" \
+  --doc-lengths "" \
+  --sample-mode "pairwise" \
+  --listwise-size 4 \
+  --seed 13
 ```
 
 ## Sample output header
@@ -62,11 +70,26 @@ Thu Feb  5 01:11:56 UTC 2026
 ================================================================================
 RUN CONFIG
 Model: Qwen/Qwen3-Embedding-0.6B
-Dataset: /app/data/train.jsonl
-Used dataset: /app/data/train.jsonl
+Dataset: auto
+Used dataset: /output/bench_dataset.jsonl
+Generated dataset: True
 Max samples: 64
 ...
 ================================================================================
+```
+
+## Dataset generator
+
+The benchmark generates synthetic datasets on the fly. You can also call the generator directly:
+
+```bash
+python3 /app/generate_swift_dataset.py \
+  --output /output/bench_dataset.jsonl \
+  --num-samples 512 \
+  --query-lengths 128,256,512 \
+  --doc-lengths 256,512,1024 \
+  --mode listwise \
+  --listwise-size 8
 ```
 
 ## Override example (Runpod Start Command)
@@ -74,7 +97,12 @@ Max samples: 64
 ```bash
 python3 /app/bench_swift_finetune.py \
   --model "Qwen/Qwen3-Embedding-0.6B" \
-  --max-samples 128 \
+  --dataset auto \
+  --num-samples 512 \
+  --query-lengths 128,256,512,1024,2048 \
+  --doc-lengths 256,512,1024,2048 \
+  --sample-mode listwise \
+  --listwise-size 8 \
   --num-train-epochs 1 \
   --per-device-train-batch-size 4 \
   --max-length 256
@@ -83,10 +111,18 @@ python3 /app/bench_swift_finetune.py \
 ## Key env vars
 
 - `MODEL` (default: `Qwen/Qwen3-Embedding-0.6B`)
-- `DATASET` (default: `/app/data/train.jsonl`)
+- `DATASET` (default: `auto`)
 - `OUTPUT_DIR` (default: `/output`)
-- `RESULTS_FILE` (default: `/output/swift_finetune_benchmark.txt`)
+- `RESULTS_FILE` (default: `swift_finetune_benchmark.txt`)
 - `MAX_SAMPLES` (default: `64`)
+- `NUM_SAMPLES` (default: `256`)
+- `QUERY_WORDS` (default: `128`)
+- `DOC_WORDS` (default: `256`)
+- `QUERY_LENGTHS` (default: empty)
+- `DOC_LENGTHS` (default: empty)
+- `SAMPLE_MODE` (default: `pairwise`)
+- `LISTWISE_SIZE` (default: `4`)
+- `SEED` (default: `13`)
 - `NUM_TRAIN_EPOCHS` (default: `1`)
 - `PER_DEVICE_TRAIN_BATCH_SIZE` (default: `4`)
 - `GRADIENT_ACCUMULATION_STEPS` (default: `1`)

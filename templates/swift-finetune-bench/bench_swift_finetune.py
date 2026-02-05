@@ -8,10 +8,23 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import List
+
+from generate_swift_dataset import generate_dataset
 
 
 def parse_bool(value: str) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def parse_int_list(value: str) -> List[int]:
+    items = []
+    for part in (value or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        items.append(int(part))
+    return items
 
 
 def detect_nproc_per_node() -> int:
@@ -68,9 +81,9 @@ def write_config(path: Path, config: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a short ms-swift fine-tuning benchmark.")
     parser.add_argument("--model", default=os.environ.get("MODEL", "Qwen/Qwen3-Embedding-0.6B"))
-    parser.add_argument("--dataset", default=os.environ.get("DATASET", "/app/data/train.jsonl"))
+    parser.add_argument("--dataset", default=os.environ.get("DATASET", "auto"))
     parser.add_argument("--output-dir", default=os.environ.get("OUTPUT_DIR", "/output"))
-    parser.add_argument("--results-file", default=os.environ.get("RESULTS_FILE", "/output/swift_finetune_benchmark.txt"))
+    parser.add_argument("--results-file", default=os.environ.get("RESULTS_FILE", "swift_finetune_benchmark.txt"))
 
     parser.add_argument("--task-type", default=os.environ.get("TASK_TYPE", "embedding"))
     parser.add_argument("--model-type", default=os.environ.get("MODEL_TYPE", "qwen3_emb"))
@@ -103,6 +116,14 @@ def main() -> int:
     parser.add_argument("--dataloader-drop-last", default=os.environ.get("DATALOADER_DROP_LAST", "1"))
 
     parser.add_argument("--max-samples", type=int, default=int(os.environ.get("MAX_SAMPLES", "64")))
+    parser.add_argument("--num-samples", type=int, default=int(os.environ.get("NUM_SAMPLES", "256")))
+    parser.add_argument("--query-words", type=int, default=int(os.environ.get("QUERY_WORDS", "128")))
+    parser.add_argument("--doc-words", type=int, default=int(os.environ.get("DOC_WORDS", "256")))
+    parser.add_argument("--query-lengths", default=os.environ.get("QUERY_LENGTHS", ""))
+    parser.add_argument("--doc-lengths", default=os.environ.get("DOC_LENGTHS", ""))
+    parser.add_argument("--sample-mode", default=os.environ.get("SAMPLE_MODE", "pairwise"))
+    parser.add_argument("--listwise-size", type=int, default=int(os.environ.get("LISTWISE_SIZE", "4")))
+    parser.add_argument("--seed", type=int, default=int(os.environ.get("SEED", "13")))
     parser.add_argument("--swift-extra-args", default=os.environ.get("SWIFT_EXTRA_ARGS", ""))
     parser.add_argument("--dry-run", action="store_true", default=os.environ.get("DRY_RUN", "0") == "1")
 
@@ -119,12 +140,17 @@ def main() -> int:
     log_path = output_dir / "swift_finetune.log"
 
     dataset_path = args.dataset
-    dataset_file = Path(dataset_path)
+    dataset_file = Path(dataset_path) if dataset_path not in ("", "auto") else None
     used_dataset_path = dataset_path
     total_samples = None
     effective_samples = None
+    generated_dataset = False
+    query_lengths = None
+    doc_lengths = None
 
-    if dataset_file.is_file():
+    if dataset_path in ("", "auto"):
+        generated_dataset = True
+    elif dataset_file and dataset_file.is_file():
         total_samples = count_nonempty_lines(dataset_file)
         effective_samples = total_samples
         if args.max_samples > 0:
@@ -136,6 +162,30 @@ def main() -> int:
     else:
         if args.max_samples > 0:
             print("[swift-ft] Warning: dataset is not a local file; MAX_SAMPLES cannot be enforced.")
+
+    query_lengths_str = args.query_lengths
+    doc_lengths_str = args.doc_lengths
+
+    if generated_dataset:
+        query_lengths = parse_int_list(args.query_lengths) or [args.query_words]
+        doc_lengths = parse_int_list(args.doc_lengths) or [args.doc_words]
+        query_lengths_str = ",".join(str(x) for x in query_lengths)
+        doc_lengths_str = ",".join(str(x) for x in doc_lengths)
+        used_dataset_path = str(output_dir / "bench_dataset.jsonl")
+        sample_mode = args.sample_mode.lower()
+        if sample_mode not in {"pairwise", "listwise"}:
+            raise ValueError(f"Invalid sample mode: {args.sample_mode}")
+        effective_samples = args.num_samples
+        total_samples = args.num_samples
+        generate_dataset(
+            output_path=Path(used_dataset_path),
+            num_samples=args.num_samples,
+            query_lengths=query_lengths,
+            doc_lengths=doc_lengths,
+            mode=sample_mode,
+            listwise_size=args.listwise_size,
+            seed=args.seed,
+        )
 
     split_ratio = max(0.0, min(1.0, args.split_dataset_ratio))
     train_samples_per_epoch = None
@@ -193,7 +243,16 @@ def main() -> int:
     print(f"Model: {args.model}")
     print(f"Dataset: {args.dataset}")
     print(f"Used dataset: {used_dataset_path}")
+    print(f"Generated dataset: {generated_dataset}")
     print(f"Max samples: {args.max_samples}")
+    print(f"Num samples: {args.num_samples}")
+    print(f"Query words: {args.query_words}")
+    print(f"Doc words: {args.doc_words}")
+    print(f"Query lengths: {query_lengths_str or '(none)'}")
+    print(f"Doc lengths: {doc_lengths_str or '(none)'}")
+    print(f"Sample mode: {args.sample_mode}")
+    print(f"Listwise size: {args.listwise_size}")
+    print(f"Seed: {args.seed}")
     print(f"Output dir: {output_dir}")
     print(f"Results file: {results_path}")
     print(f"Train type: {args.train_type}")
@@ -283,6 +342,13 @@ def main() -> int:
         f"model_type={args.model_type}",
         f"dataset={args.dataset}",
         f"used_dataset={used_dataset_path}",
+        f"generated_dataset={generated_dataset}",
+        f"sample_mode={args.sample_mode}",
+        f"listwise_size={args.listwise_size}",
+        f"query_lengths={query_lengths_str or 'na'}",
+        f"doc_lengths={doc_lengths_str or 'na'}",
+        f"num_samples={args.num_samples}",
+        f"seed={args.seed}",
         f"samples={fmt_value(effective_samples)}",
         f"train_samples={fmt_value(train_samples_total)}",
         f"steps={fmt_value(steps_total)}",

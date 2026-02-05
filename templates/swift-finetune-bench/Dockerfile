@@ -26,8 +26,8 @@ RUN pip install --no-cache-dir ninja packaging wheel && \
 WORKDIR /app
 
 COPY bench_swift_finetune.py /app/bench_swift_finetune.py
+COPY generate_swift_dataset.py /app/generate_swift_dataset.py
 COPY run_bench.sh /app/run_bench.sh
-COPY data /app/data
 
 RUN chmod +x /app/run_bench.sh
 
