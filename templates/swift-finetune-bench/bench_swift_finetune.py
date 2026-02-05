@@ -228,15 +228,29 @@ def main() -> int:
         query_lengths_str = args.query_lengths
         doc_lengths_str = args.doc_lengths
 
+        lengths_scaled = False
         if generated_dataset:
             query_lengths = parse_int_list(args.query_lengths) or [args.query_words]
             doc_lengths = parse_int_list(args.doc_lengths) or [args.doc_words]
-            query_lengths_str = ",".join(str(x) for x in query_lengths)
-            doc_lengths_str = ",".join(str(x) for x in doc_lengths)
-            used_dataset_path = str(model_output_dir / "bench_dataset.jsonl")
             sample_mode = args.sample_mode.lower()
             if sample_mode not in {"pairwise", "listwise"}:
                 raise ValueError(f"Invalid sample mode: {args.sample_mode}")
+            doc_multiplier = 1 + (args.listwise_size if sample_mode == "listwise" else 0)
+            if args.max_length > 0:
+                max_total_words = max(1, int(args.max_length * 0.8))
+                total_words = max(query_lengths) + max(doc_lengths) * doc_multiplier
+                if total_words > max_total_words:
+                    scale = max_total_words / total_words
+                    query_lengths = [max(1, int(math.floor(x * scale))) for x in query_lengths]
+                    doc_lengths = [max(1, int(math.floor(x * scale))) for x in doc_lengths]
+                    lengths_scaled = True
+                    print(
+                        "[swift-ft] Warning: requested query/doc lengths exceed max_length "
+                        f"{args.max_length}; scaling lengths to fit."
+                    )
+            query_lengths_str = ",".join(str(x) for x in query_lengths)
+            doc_lengths_str = ",".join(str(x) for x in doc_lengths)
+            used_dataset_path = str(model_output_dir / "bench_dataset.jsonl")
             effective_samples = args.num_samples
             total_samples = args.num_samples
             generate_dataset(
@@ -251,7 +265,7 @@ def main() -> int:
                 doc_role=doc_role,
             )
             max_requested = max(query_lengths + doc_lengths)
-            if args.max_length > 0 and max_requested > args.max_length:
+            if args.max_length > 0 and max_requested > args.max_length and not lengths_scaled:
                 print(
                     f"[swift-ft] Warning: max_length {args.max_length} is below the "
                     f"requested length {max_requested}; inputs will be truncated."

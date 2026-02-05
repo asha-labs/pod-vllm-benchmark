@@ -145,6 +145,9 @@ When `MODELS` is set with multiple entries, each run is written under
 If `TASK_TYPE` is left as `embedding` and the model name includes `reranker`,
 the script auto-selects a reranker task type and `pointwise_reranker` loss,
 and generates documents with the `assistant` role to match the SWIFT reranker guide.
+
+When generating synthetic data, the script scales query/doc lengths down if the
+requested lengths would exceed `MAX_LENGTH` (with listwise negatives included).
 - `NUM_TRAIN_EPOCHS` (default: `1`)
 - `PER_DEVICE_TRAIN_BATCH_SIZE` (default: `4`)
 - `GRADIENT_ACCUMULATION_STEPS` (default: `1`)
