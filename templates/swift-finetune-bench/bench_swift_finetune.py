@@ -70,12 +70,6 @@ def infer_model_type(model: str, requested: str, task_type: str) -> str:
     return requested
 
 
-def normalize_model_id(model: str) -> str:
-    if model.startswith("Alibaba-NLP/gte-reranker-modernbert-base"):
-        return "iic/gte-reranker-modernbert-base"
-    return model
-
-
 def detect_nproc_per_node() -> int:
     env_nproc = os.environ.get("NPROC_PER_NODE")
     if env_nproc:
@@ -196,7 +190,6 @@ def main() -> int:
     overall_return = 0
 
     for index, model in enumerate(models, start=1):
-        model = normalize_model_id(model)
         model_output_dir = base_output_dir
         if len(models) > 1:
             model_output_dir = base_output_dir / sanitize_model_name(model)
@@ -206,6 +199,10 @@ def main() -> int:
         loss_type = infer_loss_type(task_type, args.loss_type)
         model_type = infer_model_type(model, args.model_type, task_type)
         doc_role = "assistant" if "reranker" in task_type else "user"
+
+        if "--use_hf" in args.swift_extra_args and model.startswith("iic/"):
+            if not (os.environ.get("HUGGING_FACE_HUB_TOKEN") or os.environ.get("HF_TOKEN")):
+                print("[swift-ft] Warning: HF auth token not set; iic/* models may be gated on HF.")
 
         results_path = Path(args.results_file)
         if not results_path.is_absolute():
