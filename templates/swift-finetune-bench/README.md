@@ -20,6 +20,7 @@ The wrapper prints `date` and `nvidia-smi` before running the benchmark.
 
 ```bash
 python3 /app/bench_swift_finetune.py \
+  --models "" \
   --model "Qwen/Qwen3-Embedding-0.6B" \
   --dataset "auto" \
   --output-dir "/output" \
@@ -96,6 +97,7 @@ python3 /app/generate_swift_dataset.py \
 
 ```bash
 python3 /app/bench_swift_finetune.py \
+  --models "Qwen/Qwen3-Reranker-0.6B,Alibaba-NLP/gte-reranker-modernbert-base" \
   --model "Qwen/Qwen3-Embedding-0.6B" \
   --dataset auto \
   --num-samples 512 \
@@ -121,6 +123,8 @@ LISTWISE_SIZE=8 \
 
 ## Key env vars
 
+- `MODELS` (comma-separated; overrides `MODEL`)
+- `RERANKER_MODELS` (alias for `MODELS` if `MODELS` is unset)
 - `MODEL` (default: `Qwen/Qwen3-Embedding-0.6B`)
 - `DATASET` (default: `auto`)
 - `OUTPUT_DIR` (default: `/output`)
@@ -134,6 +138,9 @@ LISTWISE_SIZE=8 \
 - `SAMPLE_MODE` (default: `pairwise`)
 - `LISTWISE_SIZE` (default: `4`)
 - `SEED` (default: `13`)
+
+When `MODELS` is set with multiple entries, each run is written under
+`$OUTPUT_DIR/<model_name>` with separate logs/results.
 - `NUM_TRAIN_EPOCHS` (default: `1`)
 - `PER_DEVICE_TRAIN_BATCH_SIZE` (default: `4`)
 - `GRADIENT_ACCUMULATION_STEPS` (default: `1`)
