@@ -64,7 +64,9 @@ def infer_model_type(model: str, requested: str, task_type: str) -> str:
         return requested
     lower = model.lower()
     if "modernbert" in lower and task_type == "reranker":
-        return "modernbert"
+        if "gte" in lower:
+            return "modern_bert_gte_reranker"
+        return "modern_bert"
     return requested
 
 
