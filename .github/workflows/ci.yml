@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python sources
+        run: |
+          python -m compileall \
+            templates/llm-bench \
+            templates/reranker-bench \
+            templates/swift-finetune-bench \
+            ref/server-benchmark/generate_benchmark_report.py \
+            ref/server-benchmark/run_remote_benchmark.py \
+            ref/server-benchmark/utils
