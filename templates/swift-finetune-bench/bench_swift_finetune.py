@@ -40,6 +40,25 @@ def sanitize_model_name(model: str) -> str:
     return model.replace("/", "__").replace(":", "_")
 
 
+def infer_task_type(model: str, requested: str) -> str:
+    if requested != "embedding":
+        return requested
+    lower = model.lower()
+    if "reranker" in lower:
+        if "qwen3-reranker" in lower or "qwen3-vl-reranker" in lower:
+            return "generative_reranker"
+        return "reranker"
+    return requested
+
+
+def infer_loss_type(task_type: str, requested: str) -> str:
+    if requested != "infonce":
+        return requested
+    if "reranker" in task_type:
+        return "pointwise_reranker"
+    return requested
+
+
 def detect_nproc_per_node() -> int:
     env_nproc = os.environ.get("NPROC_PER_NODE")
     if env_nproc:
@@ -165,6 +184,10 @@ def main() -> int:
             model_output_dir = base_output_dir / sanitize_model_name(model)
         model_output_dir.mkdir(parents=True, exist_ok=True)
 
+        task_type = infer_task_type(model, args.task_type)
+        loss_type = infer_loss_type(task_type, args.loss_type)
+        doc_role = "assistant" if "reranker" in task_type else "user"
+
         results_path = Path(args.results_file)
         if not results_path.is_absolute():
             results_path = model_output_dir / results_path
@@ -224,7 +247,15 @@ def main() -> int:
                 mode=sample_mode,
                 listwise_size=args.listwise_size,
                 seed=args.seed,
+                query_role="user",
+                doc_role=doc_role,
             )
+            max_requested = max(query_lengths + doc_lengths)
+            if args.max_length > 0 and max_requested > args.max_length:
+                print(
+                    f"[swift-ft] Warning: max_length {args.max_length} is below the "
+                    f"requested length {max_requested}; inputs will be truncated."
+                )
 
         split_ratio = max(0.0, min(1.0, args.split_dataset_ratio))
         train_samples_per_epoch = None
@@ -235,10 +266,10 @@ def main() -> int:
 
         config = {
             "model": model,
-            "task_type": args.task_type,
+            "task_type": task_type,
             "model_type": args.model_type,
-            "train_type": args.train_type,
-            "loss_type": args.loss_type,
+            "tuner_type": args.train_type,
+            "loss_type": loss_type,
             "attn_impl": args.attn_impl,
             "dataset": used_dataset_path,
             "split_dataset_ratio": split_ratio,
@@ -248,21 +279,23 @@ def main() -> int:
             "num_train_epochs": args.num_train_epochs,
             "save_steps": args.save_steps,
             "logging_steps": args.logging_steps,
-        "per_device_train_batch_size": args.per_device_train_batch_size,
-        "per_device_eval_batch_size": args.per_device_eval_batch_size,
-        "gradient_accumulation_steps": args.gradient_accumulation_steps,
-        "learning_rate": args.learning_rate,
-        "max_length": args.max_length,
-        "torch_dtype": args.torch_dtype,
-        "lora_rank": args.lora_rank,
-        "lora_alpha": args.lora_alpha,
-        "target_modules": args.target_modules,
-        "dataset_num_proc": args.dataset_num_proc,
-        "dataloader_num_workers": args.dataloader_num_workers,
+            "per_device_train_batch_size": args.per_device_train_batch_size,
+            "per_device_eval_batch_size": args.per_device_eval_batch_size,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "learning_rate": args.learning_rate,
+            "max_length": args.max_length,
+            "dtype": args.torch_dtype,
+            "lora_rank": args.lora_rank,
+            "lora_alpha": args.lora_alpha,
+            "target_modules": args.target_modules,
+            "dataset_num_proc": args.dataset_num_proc,
+            "dataloader_num_workers": args.dataloader_num_workers,
             "dataloader_drop_last": drop_last,
             "save_total_limit": args.save_total_limit,
             "save_only_model": save_only_model,
         }
+        if "reranker" in task_type and args.model_type == "qwen3_emb":
+            config.pop("model_type", None)
 
         config_path = model_output_dir / "swift_finetune_config.yaml"
         write_config(config_path, config)
@@ -291,9 +324,9 @@ def main() -> int:
         print(f"Output dir: {model_output_dir}")
         print(f"Results file: {results_path}")
         print(f"Train type: {args.train_type}")
-        print(f"Task type: {args.task_type}")
-        print(f"Model type: {args.model_type}")
-        print(f"Loss type: {args.loss_type}")
+        print(f"Task type: {task_type}")
+        print(f"Model type: {config.get('model_type', '(auto)')}")
+        print(f"Loss type: {loss_type}")
         print(f"Attn impl: {args.attn_impl}")
         print(f"Dtype: {args.torch_dtype}")
         print(f"Num train epochs: {args.num_train_epochs}")
@@ -373,8 +406,9 @@ def main() -> int:
             "SWIFT_FT_RESULT",
             f"model={model}",
             f"train_type={args.train_type}",
-            f"task_type={args.task_type}",
-            f"model_type={args.model_type}",
+            f"task_type={task_type}",
+            f"model_type={config.get('model_type', '')}",
+            f"loss_type={loss_type}",
             f"dataset={args.dataset}",
             f"used_dataset={used_dataset_path}",
             f"generated_dataset={generated_dataset}",

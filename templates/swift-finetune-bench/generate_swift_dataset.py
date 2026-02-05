@@ -44,6 +44,8 @@ def generate_dataset(
     mode: str,
     listwise_size: int,
     seed: int,
+    query_role: str = "user",
+    doc_role: str = "user",
 ) -> int:
     rng = random.Random(seed)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,11 +72,11 @@ def generate_dataset(
             negatives = []
             for neg_idx in range(listwise_size):
                 neg_text = build_text(rng, d_len, f"neg{idx}_{neg_idx}")
-                negatives.append([{"role": "user", "content": neg_text}])
+                negatives.append([{"role": doc_role, "content": neg_text}])
 
             payload = {
-                "messages": [{"role": "user", "content": query_text}],
-                "positive_messages": [[{"role": "user", "content": pos_text}]],
+                "messages": [{"role": query_role, "content": query_text}],
+                "positive_messages": [[{"role": doc_role, "content": pos_text}]],
             }
             if negatives:
                 payload["negative_messages"] = negatives
@@ -87,7 +89,7 @@ def generate_dataset(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate SWIFT embedding datasets with pairwise or listwise samples."
+        description="Generate SWIFT datasets with pairwise or listwise samples."
     )
     parser.add_argument(
         "--output",
@@ -140,6 +142,16 @@ def main() -> int:
         default=13,
         help="Random seed.",
     )
+    parser.add_argument(
+        "--query-role",
+        default="user",
+        help="Role used for the query message (default: user).",
+    )
+    parser.add_argument(
+        "--doc-role",
+        default="user",
+        help="Role used for positive/negative documents (default: user).",
+    )
 
     args = parser.parse_args()
 
@@ -155,6 +167,8 @@ def main() -> int:
         mode=args.mode,
         listwise_size=args.listwise_size,
         seed=args.seed,
+        query_role=args.query_role,
+        doc_role=args.doc_role,
     )
 
     print(f"Generated {count} samples at {output_path}")
