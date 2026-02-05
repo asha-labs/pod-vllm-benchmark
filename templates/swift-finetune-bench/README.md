@@ -148,6 +148,10 @@ and generates documents with the `assistant` role to match the SWIFT reranker gu
 
 When generating synthetic data, the script scales query/doc lengths down if the
 requested lengths would exceed `MAX_LENGTH` (with listwise negatives included).
+
+If you pass `--use_hf` and the model is `iic/gte-reranker-modernbert-base`,
+the runner switches to the HF repo `Alibaba-NLP/gte-reranker-modernbert-base`
+to avoid HF 401 errors.
 - `NUM_TRAIN_EPOCHS` (default: `1`)
 - `PER_DEVICE_TRAIN_BATCH_SIZE` (default: `4`)
 - `GRADIENT_ACCUMULATION_STEPS` (default: `1`)

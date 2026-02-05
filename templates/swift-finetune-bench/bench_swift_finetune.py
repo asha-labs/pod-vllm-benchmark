@@ -70,6 +70,24 @@ def infer_model_type(model: str, requested: str, task_type: str) -> str:
     return requested
 
 
+def parse_use_hf(extra_args: str) -> bool:
+    parts = shlex.split(extra_args or "")
+    if "--use_hf" not in parts:
+        return False
+    idx = parts.index("--use_hf")
+    if idx + 1 < len(parts) and not parts[idx + 1].startswith("--"):
+        return parse_bool(parts[idx + 1])
+    return True
+
+
+def resolve_model_for_hf(model: str, use_hf: bool) -> str:
+    if not use_hf:
+        return model
+    if model.startswith("iic/gte-reranker-modernbert-base"):
+        return "Alibaba-NLP/gte-reranker-modernbert-base"
+    return model
+
+
 def detect_nproc_per_node() -> int:
     env_nproc = os.environ.get("NPROC_PER_NODE")
     if env_nproc:
@@ -189,7 +207,10 @@ def main() -> int:
 
     overall_return = 0
 
+    use_hf = parse_use_hf(args.swift_extra_args)
+
     for index, model in enumerate(models, start=1):
+        model = resolve_model_for_hf(model, use_hf)
         model_output_dir = base_output_dir
         if len(models) > 1:
             model_output_dir = base_output_dir / sanitize_model_name(model)
