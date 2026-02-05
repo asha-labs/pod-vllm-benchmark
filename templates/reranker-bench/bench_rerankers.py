@@ -129,6 +129,24 @@ def main() -> int:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    print("=" * 80)
+    print("RUN CONFIG")
+    print(f"Models: {', '.join(models)}")
+    print(f"Batch sizes: {', '.join(str(x) for x in batch_sizes)}")
+    print(f"Num pairs: {args.num_pairs}")
+    print(f"Num pairs per batch: {args.num_pairs_per_batch}")
+    print(f"Min pairs: {args.min_pairs}")
+    print(f"Max length: {args.max_length}")
+    print(f"Query words: {args.query_words}")
+    print(f"Doc words: {args.doc_words}")
+    print(f"Warmup steps: {args.warmup_steps}")
+    print(f"Use FP16: {args.use_fp16}")
+    print(f"Trust remote code: {args.trust_remote_code}")
+    print(f"Models dir: {args.models_dir}")
+    print(f"Clear model after: {args.clear_model_after}")
+    print(f"Device: {device}")
+    print("=" * 80)
+
     results = []
     failed_models = []
 
@@ -235,6 +253,15 @@ def main() -> int:
                         effective_pairs = args.num_pairs
 
                     pairs = [(query_text, doc_text) for _ in range(effective_pairs)]
+                    print(
+                        "RUN PARAMS | "
+                        f"batch_size={batch_size} "
+                        f"effective_pairs={effective_pairs} "
+                        f"max_length={args.max_length} "
+                        f"query_words={args.query_words} "
+                        f"doc_words={args.doc_words} "
+                        f"use_fp16={args.use_fp16}"
+                    )
 
                     def run_steps(steps: int) -> None:
                         if steps <= 0:

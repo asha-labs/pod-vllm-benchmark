@@ -228,6 +228,34 @@ def main() -> int:
     base_url = f"http://127.0.0.1:{args.serve_port}"
     health_url = f"{base_url}/health"
 
+    print("=" * 80)
+    print("RUN CONFIG")
+    print(f"Models: {', '.join(models)}")
+    print(f"Length pairs: {', '.join(f'{i}:{o}' for i, o in length_pairs)}")
+    print(f"Concurrency values: {', '.join(str(x) for x in concurrency_values)}")
+    print(f"Num prompts: {args.num_prompts}")
+    print(f"Num prompts per concurrency: {args.num_prompts_per_concurrency}")
+    print(f"Min prompts: {args.min_prompts}")
+    print(
+        f"Warmup: prompts={args.warmup_num_prompts} "
+        f"input_len={args.warmup_input_len} output_len={args.warmup_output_len}"
+    )
+    print(f"Models dir: {args.models_dir}")
+    print(f"Serve host: {args.serve_host}")
+    print(f"Serve port: {args.serve_port}")
+    print(f"Dtype: {args.dtype}")
+    print(f"Max model len: {args.max_model_len}")
+    print(f"GPU memory utilization: {args.gpu_memory_utilization}")
+    print(f"API key set: {bool(args.api_key)}")
+    print(f"Enforce eager: {args.enforce_eager}")
+    print(f"Trust remote code: {args.trust_remote_code}")
+    print(f"Extra vLLM args: {args.extra_vllm_args or '(none)'}")
+    print(f"Startup timeout: {args.startup_timeout}")
+    print(f"Cooldown seconds: {args.cooldown_seconds}")
+    print(f"Clear model after: {args.clear_model_after}")
+    print(f"Fail on error: {args.fail_on_error}")
+    print("=" * 80)
+
     results = []
     failed_models = []
 
@@ -319,6 +347,7 @@ def main() -> int:
                     )
                 else:
                     effective_prompts = args.num_prompts
+                print(f"Effective prompts: {effective_prompts}")
                 ok, output = run_bench(
                     model_name=model,
                     base_url=base_url,
