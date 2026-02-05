@@ -59,6 +59,15 @@ def infer_loss_type(task_type: str, requested: str) -> str:
     return requested
 
 
+def infer_model_type(model: str, requested: str, task_type: str) -> str:
+    if requested and requested != "qwen3_emb":
+        return requested
+    lower = model.lower()
+    if "modernbert" in lower and task_type == "reranker":
+        return "modernbert"
+    return requested
+
+
 def detect_nproc_per_node() -> int:
     env_nproc = os.environ.get("NPROC_PER_NODE")
     if env_nproc:
@@ -186,6 +195,7 @@ def main() -> int:
 
         task_type = infer_task_type(model, args.task_type)
         loss_type = infer_loss_type(task_type, args.loss_type)
+        model_type = infer_model_type(model, args.model_type, task_type)
         doc_role = "assistant" if "reranker" in task_type else "user"
 
         results_path = Path(args.results_file)
@@ -229,13 +239,14 @@ def main() -> int:
         doc_lengths_str = args.doc_lengths
 
         lengths_scaled = False
+        effective_listwise_size = args.listwise_size if args.sample_mode.lower() == "listwise" else 1
         if generated_dataset:
             query_lengths = parse_int_list(args.query_lengths) or [args.query_words]
             doc_lengths = parse_int_list(args.doc_lengths) or [args.doc_words]
             sample_mode = args.sample_mode.lower()
             if sample_mode not in {"pairwise", "listwise"}:
                 raise ValueError(f"Invalid sample mode: {args.sample_mode}")
-            doc_multiplier = 1 + (args.listwise_size if sample_mode == "listwise" else 0)
+            doc_multiplier = 1 + (effective_listwise_size if sample_mode == "listwise" else 0)
             if args.max_length > 0:
                 max_total_words = max(1, int(args.max_length * 0.8))
                 total_words = max(query_lengths) + max(doc_lengths) * doc_multiplier
@@ -259,7 +270,7 @@ def main() -> int:
                 query_lengths=query_lengths,
                 doc_lengths=doc_lengths,
                 mode=sample_mode,
-                listwise_size=args.listwise_size,
+                listwise_size=effective_listwise_size,
                 seed=args.seed,
                 query_role="user",
                 doc_role=doc_role,
@@ -281,7 +292,7 @@ def main() -> int:
         config = {
             "model": model,
             "task_type": task_type,
-            "model_type": args.model_type,
+            "model_type": model_type,
             "tuner_type": args.train_type,
             "loss_type": loss_type,
             "attn_impl": args.attn_impl,
@@ -308,7 +319,7 @@ def main() -> int:
             "save_total_limit": args.save_total_limit,
             "save_only_model": save_only_model,
         }
-        if "reranker" in task_type and args.model_type == "qwen3_emb":
+        if "reranker" in task_type and model_type == "qwen3_emb":
             config.pop("model_type", None)
 
         config_path = model_output_dir / "swift_finetune_config.yaml"
@@ -333,7 +344,7 @@ def main() -> int:
         print(f"Query lengths: {query_lengths_str or '(none)'}")
         print(f"Doc lengths: {doc_lengths_str or '(none)'}")
         print(f"Sample mode: {args.sample_mode}")
-        print(f"Listwise size: {args.listwise_size}")
+        print(f"Listwise size: {effective_listwise_size}")
         print(f"Seed: {args.seed}")
         print(f"Output dir: {model_output_dir}")
         print(f"Results file: {results_path}")
@@ -427,7 +438,7 @@ def main() -> int:
             f"used_dataset={used_dataset_path}",
             f"generated_dataset={generated_dataset}",
             f"sample_mode={args.sample_mode}",
-            f"listwise_size={args.listwise_size}",
+            f"listwise_size={effective_listwise_size}",
             f"query_lengths={query_lengths_str or 'na'}",
             f"doc_lengths={doc_lengths_str or 'na'}",
             f"num_samples={args.num_samples}",
