@@ -70,6 +70,12 @@ def infer_model_type(model: str, requested: str, task_type: str) -> str:
     return requested
 
 
+def normalize_model_id(model: str) -> str:
+    if model.startswith("Alibaba-NLP/gte-reranker-modernbert-base"):
+        return "iic/gte-reranker-modernbert-base"
+    return model
+
+
 def detect_nproc_per_node() -> int:
     env_nproc = os.environ.get("NPROC_PER_NODE")
     if env_nproc:
@@ -190,6 +196,7 @@ def main() -> int:
     overall_return = 0
 
     for index, model in enumerate(models, start=1):
+        model = normalize_model_id(model)
         model_output_dir = base_output_dir
         if len(models) > 1:
             model_output_dir = base_output_dir / sanitize_model_name(model)
