@@ -108,6 +108,17 @@ python3 /app/bench_swift_finetune.py \
   --max-length 256
 ```
 
+## Env var example
+
+```bash
+DATASET=auto \
+QUERY_LENGTHS=1024,2048 \
+DOC_LENGTHS=1024,2048 \
+SAMPLE_MODE=listwise \
+LISTWISE_SIZE=8 \
+/bin/bash -lc 'nvidia-smi && python3 /app/bench_swift_finetune.py'
+```
+
 ## Key env vars
 
 - `MODEL` (default: `Qwen/Qwen3-Embedding-0.6B`)
